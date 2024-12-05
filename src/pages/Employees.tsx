@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Employee, Role } from '../types';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Select } from '../components/ui/select';
 import { useToast } from '../contexts/ToastContext';
 
 interface EmployeeFormData {
@@ -39,33 +38,30 @@ const Employees: React.FC = () => {
     loadData();
   }, []);
 
-  const loadData = () => {
-    // Load roles first
-    const storedRoles = localStorage.getItem('roles');
-    if (storedRoles) {
-      const parsedRoles = JSON.parse(storedRoles);
-      setRoles(parsedRoles);
-
-      // Then load employees and ensure they have valid roles
-      const storedEmployees = localStorage.getItem('employees');
-      if (storedEmployees) {
-        const parsedEmployees = JSON.parse(storedEmployees);
-        // Ensure each employee has a valid role
-        const validEmployees = parsedEmployees.map((emp: Employee) => {
-          const employeeRole = parsedRoles.find((role: Role) => role.id === emp.role.id);
-          return {
-            ...emp,
-            role: employeeRole || parsedRoles[0],
-            hireDate: new Date(emp.hireDate)
-          };
-        });
-        setEmployees(validEmployees);
-        localStorage.setItem('employees', JSON.stringify(validEmployees));
+  const loadData = async () => {
+    try {
+      // Load roles first
+      const rolesResponse = await fetch('http://localhost:3001/api/roles');
+      if (!rolesResponse.ok) {
+        throw new Error('Failed to load roles');
       }
+      const rolesData = await rolesResponse.json();
+      setRoles(rolesData);
+
+      // Then load employees
+      const employeesResponse = await fetch('http://localhost:3001/api/employees');
+      if (!employeesResponse.ok) {
+        throw new Error('Failed to load employees');
+      }
+      const employeesData = await employeesResponse.json();
+      setEmployees(employeesData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      showToast('Error loading data', 'error');
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.role || !formData.role.id) {
@@ -73,30 +69,43 @@ const Employees: React.FC = () => {
       return;
     }
 
-    const newEmployee: Employee = {
-      id: formData.id || crypto.randomUUID(),
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      role: formData.role,
-      hireDate: formData.hireDate,
-      username: formData.username,
-      password: formData.password,
-      isActive: formData.isActive
-    };
-
-    let updatedEmployees;
-    if (isEditing) {
-      updatedEmployees = employees.map(emp => emp.id === newEmployee.id ? newEmployee : emp);
-      showToast('Employee updated successfully', 'success');
-    } else {
-      updatedEmployees = [...employees, newEmployee];
-      showToast('Employee added successfully', 'success');
+    if (!formData.name || !formData.email || !formData.username || (!isEditing && !formData.password)) {
+      showToast('Please fill in all required fields', 'error');
+      return;
     }
 
-    setEmployees(updatedEmployees);
-    localStorage.setItem('employees', JSON.stringify(updatedEmployees));
-    resetForm();
+    try {
+      const response = await fetch('http://localhost:3001/api/employees', {
+        method: isEditing ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: formData.id || crypto.randomUUID(),
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          role: formData.role,
+          hireDate: formData.hireDate,
+          username: formData.username,
+          password: formData.password,
+          isActive: formData.isActive
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save employee');
+      }
+
+      showToast(isEditing ? 'Employee updated successfully' : 'Employee added successfully', 'success');
+      await loadData();
+      resetForm();
+      setShowForm(false);
+    } catch (error) {
+      console.error('Error saving employee:', error);
+      showToast(error instanceof Error ? error.message : 'Error saving employee', 'error');
+    }
   };
 
   const handleEdit = (employee: Employee) => {
@@ -108,29 +117,49 @@ const Employees: React.FC = () => {
       role: employee.role,
       hireDate: new Date(employee.hireDate),
       username: employee.username,
-      password: employee.password,
+      password: '',
       isActive: employee.isActive
     });
     setIsEditing(true);
     setShowForm(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this employee?')) {
-      const updatedEmployees = employees.filter(emp => emp.id !== id);
-      setEmployees(updatedEmployees);
-      localStorage.setItem('employees', JSON.stringify(updatedEmployees));
-      showToast('Employee deleted successfully', 'success');
+      try {
+        const response = await fetch(`http://localhost:3001/api/employees/${id}`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to delete employee');
+        }
+
+        showToast('Employee deleted successfully', 'success');
+        await loadData();
+      } catch (error) {
+        console.error('Error deleting employee:', error);
+        showToast('Error deleting employee', 'error');
+      }
     }
   };
 
-  const toggleStatus = (id: string) => {
-    const updatedEmployees = employees.map(emp => 
-      emp.id === id ? { ...emp, isActive: !emp.isActive } : emp
-    );
-    setEmployees(updatedEmployees);
-    localStorage.setItem('employees', JSON.stringify(updatedEmployees));
-    showToast('Employee status updated', 'success');
+  const toggleStatus = async (id: string) => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/employees/${id}/toggle-status`, {
+        method: 'PATCH',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to toggle employee status');
+      }
+
+      showToast('Employee status updated', 'success');
+      await loadData();
+    } catch (error) {
+      console.error('Error toggling employee status:', error);
+      showToast('Error toggling employee status', 'error');
+    }
   };
 
   const resetForm = () => {
@@ -168,6 +197,7 @@ const Employees: React.FC = () => {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hire Date</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
             </tr>
@@ -178,6 +208,9 @@ const Employees: React.FC = () => {
                 <td className="px-6 py-4 whitespace-nowrap">{employee.name}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{employee.email}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{employee.role.name}</td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  {new Date(employee.hireDate).toLocaleDateString()}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                     employee.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
@@ -203,9 +236,10 @@ const Employees: React.FC = () => {
                     {employee.isActive ? 'Deactivate' : 'Activate'}
                   </Button>
                   <Button
-                    variant="destructive"
+                    variant="outline"
                     size="sm"
                     onClick={() => handleDelete(employee.id)}
+                    className="text-red-600 hover:text-red-800"
                   >
                     Delete
                   </Button>
@@ -218,91 +252,121 @@ const Employees: React.FC = () => {
 
       {/* Employee Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
-            <h2 className="text-xl font-semibold mb-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-xl font-bold mb-4">
               {isEditing ? 'Edit Employee' : 'Add Employee'}
             </h2>
-            
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Full Name
+                </label>
                 <Input
                   type="text"
                   value={formData.name}
-                  onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Email</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Email
+                </label>
                 <Input
                   type="email"
                   value={formData.email}
-                  onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Phone</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Phone
+                </label>
                 <Input
                   type="tel"
                   value={formData.phone}
-                  onChange={e => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Role</label>
-                <Select
-                  value={formData.role.id}
-                  onChange={e => {
-                    const selectedRole = roles.find(role => role.id === e.target.value);
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Username
+                </label>
+                <Input
+                  type="text"
+                  value={formData.username}
+                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Password
+                </label>
+                <Input
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  required={!isEditing}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Role
+                </label>
+                <select 
+                  className="w-full border rounded-lg px-3 py-2"
+                  value={formData.role?.id || ''}
+                  onChange={(e) => {
+                    const selectedRole = roles.find(role => role.id === Number(e.target.value));
                     if (selectedRole) {
-                      setFormData(prev => ({ ...prev, role: selectedRole }));
+                      setFormData({ ...formData, role: selectedRole });
                     }
                   }}
                   required
                 >
-                  {roles.map(role => (
+                  <option value="">Select a role</option>
+                  {roles.map((role) => (
                     <option key={role.id} value={role.id}>
                       {role.name}
                     </option>
                   ))}
-                </Select>
+                </select>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Username</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Hire Date
+                </label>
                 <Input
-                  type="text"
-                  value={formData.username}
-                  onChange={e => setFormData(prev => ({ ...prev, username: e.target.value }))}
+                  type="date"
+                  value={formData.hireDate.toISOString().split('T')[0]}
+                  onChange={(e) => setFormData({ ...formData, hireDate: new Date(e.target.value) })}
                   required
                 />
               </div>
 
-              {!isEditing && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">Password</label>
-                  <Input
-                    type="password"
-                    value={formData.password}
-                    onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                    required={!isEditing}
-                  />
-                </div>
-              )}
-
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={resetForm}>
+              <div className="flex justify-end gap-2 mt-6">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowForm(false);
+                    resetForm();
+                  }}
+                >
                   Cancel
                 </Button>
                 <Button type="submit">
-                  {isEditing ? 'Update' : 'Add'}
+                  {isEditing ? 'Update' : 'Add'} Employee
                 </Button>
               </div>
             </form>

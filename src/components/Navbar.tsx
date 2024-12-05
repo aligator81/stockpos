@@ -13,7 +13,8 @@ import {
   Menu,
   LayoutDashboard,
   Tags,
-  Truck
+  Truck,
+  Shield
 } from 'lucide-react';
 
 interface NavItem {
@@ -44,19 +45,19 @@ const Navbar: React.FC = () => {
       to: '/inventory',
       icon: <Package className="h-5 w-5" />,
       label: 'Inventory',
-      permission: 'manage_inventory'
+      permission: 'view_inventory'
     },
     {
       to: '/categories',
       icon: <Tags className="h-5 w-5" />,
       label: 'Categories',
-      permission: 'manage_categories'
+      permission: 'view_inventory'
     },
     {
       to: '/suppliers',
       icon: <Truck className="h-5 w-5" />,
       label: 'Suppliers',
-      permission: 'manage_suppliers'
+      permission: 'view_inventory'
     },
     {
       to: '/employees',
@@ -66,7 +67,7 @@ const Navbar: React.FC = () => {
     },
     {
       to: '/roles',
-      icon: <FileText className="h-5 w-5" />,
+      icon: <Shield className="h-5 w-5" />,
       label: 'Roles',
       permission: 'manage_roles'
     },
@@ -74,7 +75,7 @@ const Navbar: React.FC = () => {
       to: '/reports',
       icon: <FileText className="h-5 w-5" />,
       label: 'Reports',
-      permission: 'manage_reports'
+      permission: 'view_reports'
     },
     {
       to: '/settings',
@@ -89,8 +90,7 @@ const Navbar: React.FC = () => {
     if (!currentUser?.data) return false;
 
     // Admin always has full access
-    if (currentUser.data.role?.name?.toLowerCase() === 'admin' || 
-        currentUser.data.role?.id?.toLowerCase() === 'admin') {
+    if (currentUser.data.role === 1) {
       return true;
     }
 

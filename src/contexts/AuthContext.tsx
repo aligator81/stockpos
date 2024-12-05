@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import axios from 'axios';
 import { Employee } from '../types';
 import toast from 'react-hot-toast';
 
@@ -60,23 +61,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
-      const response = await fetch('http://localhost:3001/api/auth/login', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({ username, password }),
-      });
+      console.log('Attempting login with:', { username });
+      
+      const response = await axios.post('http://localhost:3001/api/auth/login', 
+        { username, password },
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
-      if (!response.ok) {
-        const error = await response.text();
-        toast.error(error || 'Login failed');
+      console.log('Login response:', response.data);
+
+      if (response.status !== 200) {
+        toast.error('Login failed');
         return false;
       }
 
-      const userData = await response.json();
+      const userData = response.data;
       
       // Ensure proper role structure
       if (!userData.data.role?.permissions) {
@@ -122,7 +125,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       return true;
     } catch (error) {
       console.error('Login error:', error);
-      toast.error('Failed to connect to server');
+      if (axios.isAxiosError(error)) {
+        const message = error.response?.data?.error || 'Failed to connect to server';
+        toast.error(message);
+      } else {
+        toast.error('An unexpected error occurred');
+      }
       return false;
     }
   };

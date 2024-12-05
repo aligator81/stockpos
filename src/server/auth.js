@@ -14,57 +14,55 @@ const config = {
 
 const pool = new pg.Pool(config);
 
+// Login endpoint
 router.post('/login', async (req, res) => {
+    console.log('Login request received:', req.body);
     const { username, password } = req.body;
-    console.log('Login attempt for username:', username);
+
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
+    }
 
     try {
         // Get user and role information in a single query
         const result = await pool.query(
             `SELECT 
-                u.id::text as user_id,
+                u.id,
                 u.username,
                 u.password_hash,
                 u.email,
                 u.full_name,
                 u.role,
-                r.id as role_id,
                 r.name as role_name,
-                r.permissions::text[] as permissions
+                r.permissions
              FROM users u 
-             LEFT JOIN roles r ON u.role = r.id 
+             LEFT JOIN roles r ON r.id = u.role
              WHERE u.username = $1`,
             [username]
         );
 
-        console.log('Database query result:', result.rows);
-
         const user = result.rows[0];
+        console.log('User found:', user ? 'Yes' : 'No');
 
-        // Check if user exists
         if (!user) {
-            console.log('User not found:', username);
-            return res.status(401).send('Invalid username or password');
+            return res.status(401).json({ error: 'Invalid username or password' });
         }
 
-        // Verify password
         const validPassword = await bcrypt.compare(password, user.password_hash);
-        console.log('Password validation result:', validPassword);
-        
+        console.log('Password valid:', validPassword);
+
         if (!validPassword) {
-            console.log('Invalid password for user:', username);
-            return res.status(401).send('Invalid username or password');
+            return res.status(401).json({ error: 'Invalid username or password' });
         }
 
-        // Prepare user response
         const userResponse = {
             data: {
-                id: user.user_id,
+                id: user.id,
                 username: user.username,
                 email: user.email,
                 full_name: user.full_name,
                 role: {
-                    id: user.role_id.toString(),
+                    id: user.role,
                     name: user.role_name,
                     permissions: user.permissions || []
                 },
@@ -72,23 +70,19 @@ router.post('/login', async (req, res) => {
             }
         };
 
-        console.log('Sending user response:', userResponse);
+        console.log('Sending response:', userResponse);
         res.json(userResponse);
     } catch (error) {
-        console.error('Login error details:', {
-            message: error.message,
-            stack: error.stack,
-            error
-        });
-        res.status(500).send('Internal server error: ' + error.message);
+        console.error('Login error:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// Route to create admin user
+// Setup admin endpoint
 router.post('/setup-admin', async (req, res) => {
     try {
         // Create admin role if it doesn't exist
-        const roleResult = await pool.query(`
+        await pool.query(`
             INSERT INTO roles (id, name, permissions)
             VALUES (
                 1,
@@ -112,7 +106,6 @@ router.post('/setup-admin', async (req, res) => {
                 ]
             )
             ON CONFLICT (id) DO NOTHING
-            RETURNING id
         `);
 
         // Create admin user
@@ -120,22 +113,18 @@ router.post('/setup-admin', async (req, res) => {
         const saltRounds = 10;
         const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-        const result = await pool.query(`
+        await pool.query(`
             INSERT INTO users (username, password_hash, email, full_name, role)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (username) DO UPDATE
-            SET password_hash = EXCLUDED.password_hash,
-                email = EXCLUDED.email,
-                full_name = EXCLUDED.full_name,
-                role = EXCLUDED.role
+            SET password_hash = EXCLUDED.password_hash
             RETURNING id, username, email, full_name, role
         `, ['admin', hashedPassword, 'admin@example.com', 'Admin User', 1]);
 
-        console.log('Admin user created:', result.rows[0]);
-        res.json({ message: 'Admin user created successfully', user: result.rows[0] });
+        res.json({ message: 'Admin user created successfully' });
     } catch (error) {
         console.error('Setup admin error:', error);
-        res.status(500).send('Error setting up admin user: ' + error.message);
+        res.status(500).json({ error: 'Error setting up admin user' });
     }
 });
 
